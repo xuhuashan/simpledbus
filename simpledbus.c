@@ -326,8 +326,10 @@ static int bus_call_method(lua_State *L)
 	if (lua_isstring(L, 7)) {
 		const char *signature = lua_tostring(L, 7);
 		if (*signature &&
-				add_arguments(L, 8, lua_gettop(L), signature, msg))
+				add_arguments(L, 8, lua_gettop(L), signature, msg)) {
+			dbus_message_unref(msg);
 			return lua_error(L);
+		}
 	}
 
 	if (lua_toboolean(L, 6)) {
@@ -350,6 +352,7 @@ static int bus_call_method(lua_State *L)
 		DBusPendingCall *pending;
 
 		if (!dbus_connection_send_with_reply(c->conn, msg, &pending, -1)) {
+			dbus_message_unref(msg);
 			lua_pushnil(L);
 			lua_pushliteral(L, "Out of memory");
 			return 2;
@@ -504,8 +507,10 @@ static int bus_send_signal(lua_State *L)
 	if (lua_isstring(L, 5)) {
 		const char *signature = lua_tostring(L, 5);
 		if (*signature &&
-				add_arguments(L, 6, lua_gettop(L), signature, msg))
+				add_arguments(L, 6, lua_gettop(L), signature, msg)) {
+			dbus_message_unref(msg);
 			return lua_error(L);
+		}
 	}
 
 	r = dbus_connection_send(conn, msg, NULL);
