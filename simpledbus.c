@@ -45,6 +45,12 @@
 
 #endif /* ALLINONE */
 
+#if LUA_VERSION_NUM < 502
+#  define lua_resume(L, from, nargs) lua_resume(L, nargs)
+#  define lua_getuservalue(L, i) lua_getfenv(L, i)
+#  define lua_setuservalue(L, i) lua_setfenv(L, i)
+#endif
+
 static DBusError err;
 static DBusObjectPathVTable vtable;
 static lua_State *mainThread = NULL;
@@ -206,7 +212,7 @@ static int bus_get_signal_table(lua_State *L)
 {
 	(void)bus_check(L, 1);
 
-	lua_getfenv(L, 1);
+	lua_getuservalue(L, 1);
 	lua_rawgeti(L, 2, 2);
 
 	return 1;
@@ -252,7 +258,7 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 		}
 	}
 
-	switch (lua_resume(T, nargs)) {
+	switch (lua_resume(T, NULL, nargs)) {
 	case 0: /* thread finished */
 #ifdef DEBUG
 		printf("Thread finished, lua_gettop(T) = %i, "
@@ -368,7 +374,7 @@ static int bus_call_method(lua_State *L)
 
 		/* get the threads table */
 		lua_settop(L, 1);
-		lua_getfenv(L, 1);
+		lua_getuservalue(L, 1);
 		/* save the thread there */
 		lua_pushthread(L);
 		lua_pushboolean(L, 1);
@@ -457,7 +463,7 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	/* move the Lua signal handler there */
 	lua_xmove(S, T, 1);
 
-	switch (lua_resume(T, push_arguments(T, msg))) {
+	switch (lua_resume(T, S, push_arguments(T, msg))) {
 	case 0: /* thread finished */
 	case LUA_YIELD:	/* thread yielded */
 		/* just forget about it */
@@ -633,7 +639,7 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	/* forget about the function table */
 	lua_settop(O, 2);
 
-	switch (lua_resume(T, push_arguments(T, msg))) {
+	switch (lua_resume(T, O, push_arguments(T, msg))) {
 	case 0: /* thread finished */
 		if (send_reply(T) && stop == 0) {
 			/* move error message to main thread and error */
@@ -675,7 +681,7 @@ static int bus_register_object_path(lua_State *L)
 	lua_settop(L, 3);
 
 	/* get the signal/thread table of the conection */
-	lua_getfenv(L, 1);
+	lua_getuservalue(L, 1);
 	/* ..and move it before the path */
 	lua_insert(L, 2);
 
@@ -738,7 +744,7 @@ static int bus_unregister_object_path(lua_State *L)
 	lua_settop(L, 2);
 
 	/* get the signal/thread table of the conection */
-	lua_getfenv(L, 1);
+	lua_getuservalue(L, 1);
 	/* ..and move it before the path */
 	lua_insert(L, 2);
 
@@ -962,7 +968,7 @@ static int simpledbus_mainloop(lua_State *L)
 		lua_insert(L, n+1);
 		lua_xmove(L, T, 1);
 
-		switch (lua_resume(T, 0)) {
+		switch (lua_resume(T, L, 0)) {
 		case 0: /* thread finished */
 		case LUA_YIELD:	/* thread yielded */
 			/* forget about the thread */
@@ -1063,8 +1069,9 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 	if (lua_type(L, -1) == LUA_TUSERDATA) {
 		dbus_connection_unref(conn);
 		return 1;
-	} else
-		lua_settop(L, 0);
+	}
+
+	lua_settop(L, 0);
 
 	/* create new userdata for the bus */
 	c = lua_newuserdata(L, sizeof(LCon));
@@ -1085,7 +1092,7 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 	 * signal handlers and running threads */
 	lua_createtable(L, 2, 0);
 	lua_pushvalue(L, 2);
-	lua_setfenv(L, 1);
+	lua_setuservalue(L, 1);
 
 	/* create thread for signal handler */
 	S = lua_newthread(L);
@@ -1170,14 +1177,19 @@ static int simpledbus_open(lua_State *L)
 			dbus_connection_open(luaL_checkstring(L, 1), &err));
 }
 
-#define set_dbus_string_constant(L, i, name) \
+#define set_dbus_string_constant(L, name) \
+do { \
 	lua_pushliteral(L, #name); \
 	lua_pushliteral(L, DBUS_##name); \
-	lua_rawset(L, i)
-#define set_dbus_number_constant(L, i, name) \
+	lua_rawset(L, -3); \
+} while (0)
+
+#define set_dbus_number_constant(L, name) \
+do { \
 	lua_pushliteral(L, #name); \
 	lua_pushnumber(L, (lua_Number)DBUS_##name); \
-	lua_rawset(L, i)
+	lua_rawset(L, -3); \
+} while (0)
 
 /*
  * It starts...
@@ -1208,129 +1220,129 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 
 	/* insert the stop() function*/
 	lua_pushcclosure(L, simpledbus_stop, 0);
-	lua_setfield(L, 2, "stop");
+	lua_setfield(L, -2, "stop");
 
 	/* make the Bus metatable */
 	lua_newtable(L);
 
 	/* DBus.__index = Bus */
-	lua_pushvalue(L, 3);
-	lua_setfield(L, 3, "__index");
+	lua_pushvalue(L, -1);
+	lua_setfield(L, -2, "__index");
 
 	/* insert the mainloop() function*/
-	lua_pushvalue(L, 3); /* upvalue 1: Bus */
+	lua_pushvalue(L, -1); /* upvalue 1: Bus */
 	lua_pushcclosure(L, simpledbus_mainloop, 1);
-	lua_setfield(L, 2, "mainloop");
+	lua_setfield(L, -3, "mainloop");
 
 	/* create table for connections and let
 	 * the values be weak references */
 	lua_newtable(L);
 	lua_createtable(L, 0, 1);
 	lua_pushliteral(L, "v");
-	lua_setfield(L, 5, "__mode");
-	lua_setmetatable(L, 4);
+	lua_setfield(L, -2, "__mode");
+	lua_setmetatable(L, -2);
 
 	/* insert the SessionBus() function */
-	lua_pushvalue(L, 3); /* upvalue 1: Bus */
-	lua_pushvalue(L, 4); /* upvalue 2: connection table */
+	lua_pushvalue(L, -2); /* upvalue 1: Bus */
+	lua_pushvalue(L, -2); /* upvalue 2: connection table */
 	lua_pushcclosure(L, simpledbus_session_bus, 2);
-	lua_setfield(L, 2, "SessionBus");
+	lua_setfield(L, -4, "SessionBus");
 
 	/* insert the SystemBus() function */
-	lua_pushvalue(L, 3); /* upvalue 1: Bus */
-	lua_pushvalue(L, 4); /* upvalue 2: connection table */
+	lua_pushvalue(L, -2); /* upvalue 1: Bus */
+	lua_pushvalue(L, -2); /* upvalue 2: connection table */
 	lua_pushcclosure(L, simpledbus_system_bus, 2);
-	lua_setfield(L, 2, "SystemBus");
+	lua_setfield(L, -4, "SystemBus");
 
 	/* insert the StarterBus() function */
-	lua_pushvalue(L, 3); /* upvalue 1: Bus */
-	lua_pushvalue(L, 4); /* upvalue 2: connection table */
+	lua_pushvalue(L, -2); /* upvalue 1: Bus */
+	lua_pushvalue(L, -2); /* upvalue 2: connection table */
 	lua_pushcclosure(L, simpledbus_starter_bus, 2);
-	lua_setfield(L, 2, "StarterBus");
+	lua_setfield(L, -4, "StarterBus");
 
 	/* insert the open() function */
-	lua_pushvalue(L, 3); /* upvalue 1: Bus */
-	lua_pushvalue(L, 4); /* upvalue 2: connection table */
+	lua_pushvalue(L, -2); /* upvalue 1: Bus */
+	lua_pushvalue(L, -2); /* upvalue 2: connection table */
 	lua_pushcclosure(L, simpledbus_open, 2);
-	lua_setfield(L, 2, "open");
+	lua_setfield(L, -4, "open");
 
 	/* pop connection table */
-	lua_settop(L, 3);
+	lua_pop(L, 1);
 
 	/* insert Bus methods */
 	for (p = bus_funcs; p->name; p++) {
-		lua_pushvalue(L, 3); /* upvalue 1: Bus */
+		lua_pushvalue(L, -1); /* upvalue 1: Bus */
 		lua_pushcclosure(L, p->func, 1);
-		lua_setfield(L, 3, p->name);
+		lua_setfield(L, -2, p->name);
 	}
 
 	/* insert the garbage collection metafunction */
 	lua_pushcclosure(L, bus_gc, 0);
-	lua_setfield(L, 3, "__gc");
+	lua_setfield(L, -2, "__gc");
 
 	/* insert the Bus metatable */
-	lua_setfield(L, 2, "Bus");
+	lua_setfield(L, -2, "Bus");
 
 	/* make the Proxy metatable */
 	lua_newtable(L);
 
 	/* Proxy.__index = Proxy */
-	lua_pushvalue(L, 3);
-	lua_setfield(L, 3, "__index");
+	lua_pushvalue(L, -1);
+	lua_setfield(L, -2, "__index");
 
 	/* make the Method metatable */
 	lua_newtable(L);
 
 	/* Method.__index = Method */
-	lua_pushvalue(L, 4);
-	lua_setfield(L, 4, "__index");
+	lua_pushvalue(L, -1);
+	lua_setfield(L, -2, "__index");
 
 	/* make the Signal metatable */
 	lua_newtable(L);
 
 	/* Signal.__index = Signal */
-	lua_pushvalue(L, 5);
-	lua_setfield(L, 5, "__index");
+	lua_pushvalue(L, -1);
+	lua_setfield(L, -2, "__index");
 
 	/* insert the parse function */
-	lua_pushvalue(L, 4); /* upvalue 1: Method */
-	lua_pushvalue(L, 5); /* upvalue 2: Signal */
+	lua_pushvalue(L, -2); /* upvalue 1: Method */
+	lua_pushvalue(L, -2); /* upvalue 2: Signal */
 	lua_pushcclosure(L, proxy_parse, 2);
-	lua_setfield(L, 3, "parse");
+	lua_setfield(L, -4, "parse");
 
 	/* insert the Signal metatable */
-	lua_setfield(L, 2, "Signal");
+	lua_setfield(L, -4, "Signal");
 
 	/* insert the Method metatable */
-	lua_setfield(L, 2, "Method");
+	lua_setfield(L, -3, "Method");
 
 	/* insert the Proxy metatable */
-	lua_setfield(L, 2, "Proxy");
+	lua_setfield(L, -2, "Proxy");
 
 	/* insert constants */
-	set_dbus_string_constant(L, 2, SERVICE_DBUS);
-	set_dbus_string_constant(L, 2, PATH_DBUS);
-	set_dbus_string_constant(L, 2, INTERFACE_DBUS);
-	set_dbus_string_constant(L, 2, INTERFACE_INTROSPECTABLE);
-	set_dbus_string_constant(L, 2, INTERFACE_PROPERTIES);
-	set_dbus_string_constant(L, 2, INTERFACE_PEER);
-	set_dbus_string_constant(L, 2, INTERFACE_LOCAL);
+	set_dbus_string_constant(L, SERVICE_DBUS);
+	set_dbus_string_constant(L, PATH_DBUS);
+	set_dbus_string_constant(L, INTERFACE_DBUS);
+	set_dbus_string_constant(L, INTERFACE_INTROSPECTABLE);
+	set_dbus_string_constant(L, INTERFACE_PROPERTIES);
+	set_dbus_string_constant(L, INTERFACE_PEER);
+	set_dbus_string_constant(L, INTERFACE_LOCAL);
 
-	set_dbus_number_constant(L, 2, NAME_FLAG_ALLOW_REPLACEMENT);
-	set_dbus_number_constant(L, 2, NAME_FLAG_REPLACE_EXISTING);
-	set_dbus_number_constant(L, 2, NAME_FLAG_DO_NOT_QUEUE);
+	set_dbus_number_constant(L, NAME_FLAG_ALLOW_REPLACEMENT);
+	set_dbus_number_constant(L, NAME_FLAG_REPLACE_EXISTING);
+	set_dbus_number_constant(L, NAME_FLAG_DO_NOT_QUEUE);
 
-	set_dbus_number_constant(L, 2, REQUEST_NAME_REPLY_PRIMARY_OWNER);
-	set_dbus_number_constant(L, 2, REQUEST_NAME_REPLY_IN_QUEUE);
-	set_dbus_number_constant(L, 2, REQUEST_NAME_REPLY_EXISTS);
-	set_dbus_number_constant(L, 2, REQUEST_NAME_REPLY_ALREADY_OWNER);
+	set_dbus_number_constant(L, REQUEST_NAME_REPLY_PRIMARY_OWNER);
+	set_dbus_number_constant(L, REQUEST_NAME_REPLY_IN_QUEUE);
+	set_dbus_number_constant(L, REQUEST_NAME_REPLY_EXISTS);
+	set_dbus_number_constant(L, REQUEST_NAME_REPLY_ALREADY_OWNER);
 
-	set_dbus_number_constant(L, 2, RELEASE_NAME_REPLY_RELEASED);
-	set_dbus_number_constant(L, 2, RELEASE_NAME_REPLY_NON_EXISTENT);
-	set_dbus_number_constant(L, 2, RELEASE_NAME_REPLY_NOT_OWNER);
+	set_dbus_number_constant(L, RELEASE_NAME_REPLY_RELEASED);
+	set_dbus_number_constant(L, RELEASE_NAME_REPLY_NON_EXISTENT);
+	set_dbus_number_constant(L, RELEASE_NAME_REPLY_NOT_OWNER);
 
-	set_dbus_number_constant(L, 2, START_REPLY_SUCCESS);
-	set_dbus_number_constant(L, 2, START_REPLY_ALREADY_RUNNING);
+	set_dbus_number_constant(L, START_REPLY_SUCCESS);
+	set_dbus_number_constant(L, START_REPLY_ALREADY_RUNNING);
 
 	return 1;
 }
