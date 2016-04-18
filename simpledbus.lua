@@ -53,7 +53,7 @@ do
    function M.Method.__call(method, proxy, ...)
       return call_method(
          proxy.bus, proxy.target, proxy.object,
-         method.interface, method.name,
+         method.interface, method.name, false,
          method.signature, ...)
    end
 
@@ -62,22 +62,22 @@ do
 
    function M.Bus:request_name(name, flags)
       return call_method(self, target, object, interface,
-            'RequestName', 'su', name, flags or 0)
+            'RequestName', false, 'su', name, flags or 0)
    end
 
    function M.Bus:release_name(name)
       return call_method(self, target, object, interface,
-            'ReleaseName', 's', name)
+            'ReleaseName', false, 's', name)
    end
 
    function M.Bus:add_match(rule)
       return call_method(self, target, object, interface,
-            'AddMatch', 's', rule)
+            'AddMatch', false, 's', rule)
    end
 
    function M.Bus:remove_match(rule)
       return call_method(self, target, object, interface,
-            'RemoveMatch', 's', rule)
+            'RemoveMatch', false, 's', rule)
    end
 end
 
