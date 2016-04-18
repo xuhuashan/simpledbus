@@ -1,8 +1,9 @@
 CC	= gcc
 INSTALL = install
+LUA	= lua
 
-CFLAGS  = -march=native -O2 -Wall -fpic -pedantic
-#CFLAGS  =-O2 -Wall -fPIC -pedantic
+#CFLAGS  = -march=native -O2 -Wall -fpic -pedantic
+CFLAGS  =-O2 -Wall -fPIC -pedantic
 LIBFLAG = -shared
 
 PREFIX = /usr/local
@@ -17,7 +18,7 @@ ifdef EXPAT_DIR
 	EXPAT_LIBDIR = $(EXPAT_DIR)/lib
 endif
 
-override CFLAGS += $(DEFINES) $(shell pkg-config --cflags dbus-1) $(shell pkg-config --cflags lua5.1)
+override CFLAGS += $(DEFINES) $(shell pkg-config --cflags dbus-1) $(shell pkg-config --cflags $(LUA))
 override LDFLAGS += $(LIBFLAG) 
 
 ifdef EXPAT_INCDIR

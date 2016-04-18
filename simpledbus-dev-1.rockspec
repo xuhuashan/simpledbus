@@ -7,7 +7,7 @@ source = {
 description = {
    summary = 'Simple DBus bindings for Lua',
    --detailed = [[]],
-   homepage = 'http://github.com/esmil/simpledbus',
+   homepage = 'http://github.com/xuhuashan/simpledbus',
    license = 'GPL'
 }
 
