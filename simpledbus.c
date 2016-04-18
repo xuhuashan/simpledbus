@@ -330,20 +330,20 @@ static int bus_call_method(lua_State *L)
 			return lua_error(L);
 	}
 
-        if (lua_toboolean(L, 6)) {
-            ret = dbus_connection_send(c->conn, msg, NULL);
-            dbus_message_unref(msg);
+	if (lua_toboolean(L, 6)) {
+		dbus_bool_t ret = dbus_connection_send(c->conn, msg, NULL);
+		dbus_message_unref(msg);
 
-            if (ret == FALSE) {
-                    lua_pushnil(L);
-                    lua_pushliteral(L, "Out of memory");
-                    return 2;
-            }
+		if (ret == FALSE) {
+			lua_pushnil(L);
+			lua_pushliteral(L, "Out of memory");
+			return 2;
+		}
 
-            /* return true */
-            lua_pushboolean(L, 1);
-            return 1;
-        }
+		/* return true */
+		lua_pushboolean(L, 1);
+		return 1;
+	}
 
 	/* if (!lua_pushthread(L)) { / * L can be yielded */
 	if (mainThread) { /* main loop is running */
@@ -812,7 +812,7 @@ static struct pollfd *make_poll_struct(int n, LCon **c, nfds_t *nfds)
 
 static inline unsigned int dispatchall(int n, LCon **c)
 {
-	unsigned int r;
+	unsigned int r = 0;
 	int i;
 
 	for (i = 0; i < n; i++) {
