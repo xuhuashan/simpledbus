@@ -118,6 +118,17 @@ static enum add_return add_uint32(lua_State *L, int index,
 	return ADD_OK;
 }
 
+static enum add_return add_double(lua_State *L, int index,
+		DBusSignatureIter *type, DBusMessageIter *args)
+{
+	double d;
+	if (!lua_isnumber(L, index))
+		return add_error(L, index, LUA_TNUMBER);
+	d = (double)lua_tonumber(L, index);
+	dbus_message_iter_append_basic(args, DBUS_TYPE_DOUBLE, &d);
+	return ADD_OK;
+}
+
 static enum add_return add_string(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
@@ -187,6 +198,47 @@ static enum add_return add_array(lua_State *L, int index,
 	return ADD_OK;
 }
 
+static enum add_return add_variant(lua_State *L, int index,
+		DBusSignatureIter *type, DBusMessageIter *args)
+{
+	DBusSignatureIter var_type;
+	DBusMessageIter var_args;
+	const char *signature = NULL;
+
+	if (!lua_istable(L, index))
+		return add_error(L, index, LUA_TTABLE);
+
+	lua_getfield(L, index, "signature");
+	signature = lua_tostring(L, -1);
+	if (!signature || !dbus_signature_validate_single(signature, NULL)) {
+		lua_pop(L, 1);
+		lua_pushstring(L, "(variant has no valid signature)");
+		return ADD_ERROR;
+	}
+
+	lua_getfield(L, index, "value");
+
+	dbus_message_iter_open_container(args, DBUS_TYPE_VARIANT,
+			signature, &var_args);
+	dbus_signature_iter_init(&var_type, signature);
+
+	do {
+		add_function af = get_addfunc(&var_type);
+		int var_index = lua_gettop(L);
+		if (af(L, var_index, &var_type, &var_args) != ADD_OK) {
+			lua_insert(L, -3);
+			lua_pop(L, 2);
+			return 1;
+		}
+	} while (0);
+
+	dbus_message_iter_close_container(args, &var_args);
+
+	lua_pop(L, 2);
+
+	return ADD_OK;
+}
+
 static add_function get_addfunc(DBusSignatureIter *type)
 {
 	switch (dbus_signature_iter_get_current_type(type)) {
@@ -202,12 +254,16 @@ static add_function get_addfunc(DBusSignatureIter *type)
 		return add_int32;
 	case DBUS_TYPE_UINT32:
 		return add_uint32;
+	case DBUS_TYPE_DOUBLE:
+		return add_double;
 	case DBUS_TYPE_STRING:
 		return add_string;
 	case DBUS_TYPE_OBJECT_PATH:
 		return add_object_path;
 	case DBUS_TYPE_ARRAY:
 		return add_array;
+	case DBUS_TYPE_VARIANT:
+		return add_variant;
 	}
 
 	return add_not_implemented;
