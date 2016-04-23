@@ -49,6 +49,7 @@
 #  define lua_resume(L, from, nargs) lua_resume(L, nargs)
 #  define lua_getuservalue(L, i) lua_getfenv(L, i)
 #  define lua_setuservalue(L, i) lua_setfenv(L, i)
+#  define lua_compare(L, i1, i2, op) lua_equal(L, i1, i2)
 #endif
 
 static DBusError err;
@@ -194,7 +195,7 @@ static LCon *bus_check(lua_State *L, int index)
 		luaL_argerror(L, index,
 				"expected a DBus connection");
 
-	r = lua_equal(L, lua_upvalueindex(1), -1);
+	r = lua_compare(L, lua_upvalueindex(1), -1, LUA_OPEQ);
 	lua_pop(L, 1);
 	if (r == 0)
 		luaL_argerror(L, index,
@@ -906,7 +907,7 @@ static int simpledbus_mainloop(lua_State *L)
 					"expected a DBus connection");
 		}
 
-		r = lua_equal(L, lua_upvalueindex(1), -1);
+		r = lua_compare(L, lua_upvalueindex(1), -1, LUA_OPEQ);
 		lua_pop(L, 1);
 		if (r == 0) {
 			free(c);
