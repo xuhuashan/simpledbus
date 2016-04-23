@@ -1,32 +1,24 @@
-CC	= gcc
-INSTALL = install
-LUA	= lua
+CC		?= gcc
+INSTALL 	?= install
+LUA		?= lua
+LUA_ABIVER	?= 5.1
 
-#CFLAGS  = -march=native -O2 -Wall -fpic -pedantic
-CFLAGS  =-O2 -Wall -fPIC -pedantic
-LIBFLAG = -shared
+#CFLAGS		= -march=native -O2 -Wall -fpic -pedantic
+CFLAGS		?= -O2 -Wall -fPIC -pedantic
 
-PREFIX = /usr/local
+PREFIX		= /usr/local
+LUA_LIBDIR	= $(PREFIX)/lib/lua/$(LUA_ABIVER)
+LUA_DATADIR	= $(PREFIX)/share/lua/$(LUA_ABIVER)
 
-LUA_DIR = $(PREFIX)
-LUA_LIBDIR=$(LUA_DIR)/lib/lua/5.1
-LUA_SHAREDIR=$(LUA_DIR)/share/lua/5.1
+EXPAT_CFLAGS	= $(shell pkg-config --cflags expat)
+EXPAT_LIBS	= $(shell pkg-config --libs expat)
+DBUS_CFLAGS	= $(shell pkg-config --cflags dbus-1)
+DBUS_LIBS	= $(shell pkg-config --libs dbus-1)
+LUA_CFLAGS	= $(shell pkg-config --cflags $(LUA))
+LUA_LIBS	= $(shell pkg-config --libs $(LUA))
 
-#EXPAT_DIR = $(PREFIX)
-ifdef EXPAT_DIR
-	EXPAT_INCDIR = $(EXPAT_DIR)/include
-	EXPAT_LIBDIR = $(EXPAT_DIR)/lib
-endif
-
-override CFLAGS += $(DEFINES) $(shell pkg-config --cflags dbus-1) $(shell pkg-config --cflags $(LUA))
-override LDFLAGS += $(LIBFLAG) 
-
-ifdef EXPAT_INCDIR
-override CFLAGS += -I$(EXPAT_INCDIR)
-endif
-ifdef EXPAT_LIBDIR
-override LDFLAGS += -L$(EXPAT_LIBDIR)
-endif
+override CFLAGS	+= -fPIC $(EXPAT_CFLAGS) $(DBUS_CFLAGS) $(LUA_CFLAGS)
+override LDFLAGS += -shared $(EXPAT_LIBS) $(DBUS_LIBS) $(LUA_LIBS)
 
 sources = add.c push.c parse.c simpledbus.c
 headers = $(sources:.c=.h)
@@ -42,11 +34,11 @@ all: $(programs)
 	$(CC) $(CFLAGS) -c $<
 
 core.so: $(objects)
-	$(CC) $(CFLAGS) $(LDFLAGS) -lexpat $(shell pkg-config --libs dbus-1) $(objects) -o $@
+	$(CC) $(LDFLAGS) $(objects) -o $@
 
 allinone: CFLAGS+=-DALLINONE
 allinone:
-	$(CC) $(CFLAGS) $(LDFLAGS) -lexpat $(shell pkg-config --libs dbus-1) simpledbus.c -o core.so
+	$(CC) $(CFLAGS) $(LDFLAGS) simpledbus.c -o core.so
 
 simpledbus:
 	@echo "LuaRocks is silly..."
@@ -61,10 +53,12 @@ clean:
 	rm -f *.so *.o *.c~ *.h~ $(programs)
 
 install: core.so
-	$(INSTALL) -m755 -D core.so $(DESTDIR)$(LUA_LIBDIR)/simpledbus/core.so
-	$(INSTALL) -m644 -D simpledbus.lua $(DESTDIR)$(LUA_SHAREDIR)/simpledbus.lua
+	$(INSTALL) -m755 -D core.so \
+		$(DESTDIR)$(LUA_LIBDIR)/simpledbus/core.so
+	$(INSTALL) -m644 -D simpledbus.lua \
+		$(DESTDIR)$(LUA_DATADIR)/simpledbus.lua
 
 uninstall:
 	rm -rf $(DESTDIR)$(LUA_LIBDIR)/simpledbus
-	rm -f $(DESTDIR)$(LUA_SHAREDIR)/simpledbus.lua
+	rm -f $(DESTDIR)$(LUA_DATADIR)/simpledbus.lua
 
