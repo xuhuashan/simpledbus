@@ -211,6 +211,7 @@ static enum add_return add_dict_entry(lua_State *L, int index,
 	if (!dbus_type_is_basic(
 		dbus_signature_iter_get_current_type(&dict_type))) {
 		lua_pushstring(L, "(DICT_ENTRY key must be a basic type)");
+		return ADD_ERROR;
 	}
 	kf = get_addfunc(&dict_type);
 	if (!dbus_signature_iter_next(&dict_type)) {
@@ -249,8 +250,6 @@ static enum add_return add_dict_entry(lua_State *L, int index,
 
 		dbus_message_iter_close_container(&array_args, &dict_args);
 	}
-
-	lua_pop(L, 1);
 
 	dbus_free(signature);
 
