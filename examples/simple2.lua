@@ -16,12 +16,12 @@ systemDBus = assert(systembus:auto_proxy(
 
 -- print connections to busses
 print 'Connections to the session bus:'
-for i, s in ipairs(assert(sessionDBus:ListNames())) do
+for i, s in ipairs(assert(sessionDBus['org.freedesktop.DBus']:ListNames())) do
    print(('%4i: %s'):format(i, s))
 end
 
 print 'Connections to the system bus:'
-for i, s in ipairs(assert(systemDBus:ListNames())) do
+for i, s in ipairs(assert(systemDBus['org.freedesktop.DBus']:ListNames())) do
    print(('%4i: %s'):format(i, s))
 end
 

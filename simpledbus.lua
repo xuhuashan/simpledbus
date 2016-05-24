@@ -32,6 +32,13 @@ function M.new_error(name)
 end
 
 do
+   local function new_interface(name, proxy)
+      return setmetatable({
+         name = name
+      }, proxy)
+   end
+   M.new_interface = new_interface
+
    local Method = M.Method
    local function new_method(name, interface, signature, result)
       return setmetatable({
@@ -50,10 +57,11 @@ end
 
 do
    local call_method = M.Bus.call_method
-   function M.Method.__call(method, proxy, ...)
+   function M.Method.__call(method, interface, ...)
+      local proxy = getmetatable(interface)
       return call_method(
          proxy.bus, proxy.target, proxy.object,
-         method.interface, method.name, false,
+         interface.name, method.name, false,
          method.signature, ...)
    end
 
@@ -92,14 +100,12 @@ do
    end
    M.Bus.new_proxy = new_proxy
 
-   local Introspect = M.new_method('Introspect',
-      M.INTERFACE_INTROSPECTABLE)
-   M.Introspect = Introspect
-
    function M.Bus:auto_proxy(target, object)
       local proxy = new_proxy(self, target, object)
+      local introspectable = M.new_interface(M.INTERFACE_INTROSPECTABLE, proxy)
+      local introspect = M.new_method('Introspect', introspectable)
 
-      local r, msg = Introspect(proxy)
+      local r, msg = introspect(introspectable)
       if not r then
          return nil, msg
       end
@@ -107,6 +113,20 @@ do
       r, msg = proxy:parse(r)
       if not r then
          return nil, msg
+      end
+
+      proxy.__index = function(tab, key)
+         local pif = proxy[M.INTERFACE_PROPERTIES]
+         return pif:Get(tab.name, key)
+      end
+      proxy.__newindex = function(tab, key, value)
+         local pif = proxy[M.INTERFACE_PROPERTIES]
+         local properties = rawget(tab, 'properties')
+         local property = rawget(properties, key)
+         pif:Set(rawget(tab, 'name'), key, {
+            signature = property.type,
+            value = value
+         })
       end
 
       return proxy

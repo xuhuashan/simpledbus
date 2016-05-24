@@ -37,9 +37,10 @@ struct parsedata {
 	unsigned int level;
 	unsigned int interface;
 	enum {
-		TAG_NONE   = 0,
-		TAG_METHOD = 1,
-		TAG_SIGNAL = 2
+		TAG_NONE        = 0,
+		TAG_METHOD      = 1,
+		TAG_SIGNAL      = 2,
+		TAG_PROPERTY    = 3
 	} type;
 	char signature[SIG_MAXLENGTH];
 	char *sig_next;
@@ -49,8 +50,9 @@ struct parsedata {
 
 static void start_element_handler(struct parsedata *data,
 		const XML_Char *name,
-		const XML_Char **atts)
+		const XML_Char **attrs)
 {
+	const XML_Char **pattr = attrs;
 	data->level++;
 
 	switch (data->level) {
@@ -58,17 +60,33 @@ static void start_element_handler(struct parsedata *data,
 		if (strcmp(name, "interface"))
 			return;
 
-		if (!*atts)
+		if (!*pattr)
 			return;
-		while (strcmp(*atts, "name")) {
-			atts += 2;
-			if (!*atts)
+		while (strcmp(*pattr, "name")) {
+			pattr += 2;
+			if (!*pattr)
 				return;
 		}
 
 		/* push the interface name */
-		atts++;
-		lua_pushstring(data->L, *atts);
+		pattr++;
+		lua_pushstring(data->L, *pattr);
+
+		/* create a new interface table */
+		lua_newtable(data->L);
+
+		/* set interface name field */
+		lua_pushvalue(data->L, 4);
+		lua_setfield(data->L, 5, "name");
+
+		/* interface.properties = {} */
+		lua_newtable(data->L);
+		lua_pushvalue(data->L, 6);
+		lua_setfield(data->L, 5, "properties");
+
+		/* and set the metatable */
+		lua_pushvalue(data->L, 1);
+		lua_setmetatable(data->L, 5);
 
 		data->interface = 1;
 		break;
@@ -79,38 +97,80 @@ static void start_element_handler(struct parsedata *data,
 			data->type = TAG_METHOD;
 		else if (!strcmp(name, "signal"))
 			data->type = TAG_SIGNAL;
+		else if (!strcmp(name, "property"))
+			data->type = TAG_PROPERTY;
 		else
 			return;
 
-		if (!*atts)
-			return;
-		while (strcmp(*atts, "name")) {
-			atts += 2;
-			if (!*atts)
-				return;
-		}
-
-		/* push the method name */
-		atts++;
-		lua_pushstring(data->L, *atts);
-
-		/* check if the field is already set */
-		lua_pushvalue(data->L, 5);
-		lua_gettable(data->L, 1);
-		if (!lua_isnil(data->L, 6)) {
-			/* if it is, don't add this method/signal */
-			lua_settop(data->L, 4);
+		if (!*pattr) {
 			data->type = TAG_NONE;
 			return;
 		}
-		lua_settop(data->L, 5);
+		while (strcmp(*pattr, "name")) {
+			pattr += 2;
+			if (!*pattr) {
+				data->type = TAG_NONE;
+				return;
+			}
+		}
 
-		/* create a new method/signal table */
-		lua_createtable(data->L, 0, 4);
+		/* push the name */
+		pattr++;
+		lua_pushstring(data->L, *pattr);
 
-		/* ..and set the metatable */
-		lua_pushvalue(data->L, lua_upvalueindex(data->type));
-		lua_setmetatable(data->L, 6);
+		if (data->type == TAG_PROPERTY) {
+			const XML_Char *type = NULL, *access = NULL;
+			/* check if the field is already set */
+			lua_pushvalue(data->L, 7);
+			lua_rawget(data->L, 6);
+			if (!lua_isnil(data->L, 8)) {
+				/* if it is, don't add this property */
+				lua_settop(data->L, 6);
+				data->type = TAG_NONE;
+				return;
+			}
+			lua_settop(data->L, 7);
+
+			/* create a new property table */
+			lua_createtable(data->L, 0, 2);
+
+			/* insert type/access field */
+			pattr = attrs;
+			for (pattr = attrs; !type || !access; pattr += 2) {
+				if (!*pattr) {
+					lua_settop(data->L, 6);
+					data->type = TAG_NONE;
+					return;
+				}
+				if (!strcmp(*pattr, "type"))
+					type = *(pattr + 1);
+				else if (!strcmp(*pattr, "access"))
+					access = *(pattr + 1);
+			}
+			lua_pushstring(data->L, type);
+			lua_setfield(data->L, 8, "type");
+			lua_pushstring(data->L, access);
+			lua_setfield(data->L, 8, "access");
+		}
+		else {
+			/* check if the field is already set */
+			lua_pushvalue(data->L, 7);
+			lua_rawget(data->L, 5);
+			if (!lua_isnil(data->L, 8)) {
+				/* if it is, don't add this method/signal */
+				lua_settop(data->L, 6);
+				data->type = TAG_NONE;
+				return;
+			}
+			lua_settop(data->L, 7);
+
+			/* create a new method/signal table */
+			lua_createtable(data->L, 0, 4);
+
+			/* ..and set the metatable */
+			lua_pushvalue(data->L, lua_upvalueindex(data->type));
+			lua_setmetatable(data->L, 8);
+		}
 
 		break;
 	case 4:
@@ -121,18 +181,18 @@ static void start_element_handler(struct parsedata *data,
 			unsigned int out = 0;
 			const char *type = NULL;
 
-			while (*atts) {
-				if (!strcmp(*atts, "type")) {
-					atts++;
-					type = *atts;
-					atts++;
-				} else if (!strcmp(*atts, "direction")) {
-					atts++;
-					if (strcmp(*atts, "in"))
+			while (*pattr) {
+				if (!strcmp(*pattr, "type")) {
+					pattr++;
+					type = *pattr;
+					pattr++;
+				} else if (!strcmp(*pattr, "direction")) {
+					pattr++;
+					if (strcmp(*pattr, "in"))
 						out = 1;
-					atts++;
+					pattr++;
 				} else
-					atts += 2;
+					pattr += 2;
 			}
 
 			if (!type)
@@ -159,7 +219,8 @@ static void end_element_handler(struct parsedata *data,
 		if (!data->interface || strcmp(name, "interface"))
 			return;
 
-		lua_settop(data->L, 3);
+		lua_settop(data->L, 5);
+		lua_settable(data->L, 1);
 
 		data->interface = 0;
 		break;
@@ -167,33 +228,38 @@ static void end_element_handler(struct parsedata *data,
 		if (data->type == TAG_NONE)
 			return;
 
-		*data->sig_next = *data->res_next = '\0';
-
-		lua_pushvalue(data->L, 5); /* method/signal name */
-		lua_setfield(data->L, 6, "name");
-		lua_pushvalue(data->L, 4); /* interface */
-		lua_setfield(data->L, 6, "interface");
-		lua_pushlstring(data->L, data->signature,
-				data->sig_next - data->signature);
-		lua_setfield(data->L, 6, "signature");
-
-		switch (data->type) {
-		case TAG_METHOD:
-			lua_pushlstring(data->L, data->result,
-					data->res_next - data->result);
-			lua_setfield(data->L, 6, "result");
-			break;
-		/* case TAG_SIGNAL:, but make gcc -Wall happy */
-		default:
-			lua_pushvalue(data->L, 3); /* object name */
-			lua_setfield(data->L, 6, "object");
-			break;
+		if (data->type == TAG_PROPERTY) {
+			lua_settable(data->L, 6);
 		}
+		else {
+			*data->sig_next = *data->res_next = '\0';
 
-		lua_settable(data->L, 1);
-		data->res_next = data->result;
-		data->sig_next = data->signature;
-		data->type = TAG_NONE;
+			lua_pushvalue(data->L, 7); /* method/signal name */
+			lua_setfield(data->L, 8, "name");
+			lua_pushvalue(data->L, 5); /* interface */
+			lua_setfield(data->L, 8, "interface");
+			lua_pushlstring(data->L, data->signature,
+					data->sig_next - data->signature);
+			lua_setfield(data->L, 8, "signature");
+
+			switch (data->type) {
+			case TAG_METHOD:
+				lua_pushlstring(data->L, data->result,
+						data->res_next - data->result);
+				lua_setfield(data->L, 8, "result");
+				break;
+			/* case TAG_SIGNAL:, but make gcc -Wall happy */
+			default:
+				lua_pushvalue(data->L, 3); /* object name */
+				lua_setfield(data->L, 8, "object");
+				break;
+			}
+
+			lua_settable(data->L, 5);
+			data->res_next = data->result;
+			data->sig_next = data->signature;
+			data->type = TAG_NONE;
+		}
 	}
 }
 

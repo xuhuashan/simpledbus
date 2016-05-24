@@ -72,7 +72,7 @@ do
    o:add_method('org.lua.SimpleDBus.Test', 'ListNames', '', 'as',
    function()
       print 'ListNames() method called..'
-      local list = assert(DBusProxy:ListNames())
+      local list = assert(DBusProxy['org.freedesktop.DBus']:ListNames())
       print ' ..got list. Returning it.'
       return list
    end)

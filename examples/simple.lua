@@ -12,7 +12,7 @@ DBus = assert(bus:auto_proxy('org.freedesktop.DBus', '/org/freedesktop/DBus'))
 
 -- call a method and print the results nicely
 print 'Connections to the session bus:'
-for i, s in ipairs(assert(DBus:ListNames())) do
+for i, s in ipairs(assert(DBus['org.freedesktop.DBus']:ListNames())) do
    print(('%4i: %s'):format(i, s))
 end
 
